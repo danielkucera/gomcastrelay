@@ -2,8 +2,11 @@ package main
 
 import (
 	"github.com/gin-gonic/gin"
+	"golang.org/x/net/ipv4"
 	"log"
 	"net"
+	"strings"
+	"time"
 )
 
 const (
@@ -42,32 +45,73 @@ func main() {
 		addr, err := net.ResolveUDPAddr("udp", address)
 		if err != nil {
 			c.String(503, err.Error())
+			return
 		}
 		log.Printf("listening on %s\n", addr)
-		l, err := net.ListenMulticastUDP("udp", nil, addr)
-
+		l, err := net.ListenPacket("udp", addr.String())
+		if err != nil {
+			c.String(503, err.Error())
+			return
+		}
 		defer l.Close()
 
-		l.SetReadBuffer(2 * 1024 * 1024)
+		pc := ipv4.NewPacketConn(l)
+
+		err = pc.JoinGroup(nil, addr)
+		if err != nil {
+			log.Printf("join: join error: %v", err)
+			c.String(503, err.Error())
+			return
+		}
+
+		err = pc.SetControlMessage(ipv4.FlagTTL|ipv4.FlagSrc|ipv4.FlagDst|ipv4.FlagInterface, true)
+		if err != nil {
+			log.Printf("join: control message flags error: %v", err)
+		}
+
 		b := make([]byte, maxDatagramSize)
 
-		_, rw, err := c.Writer.Hijack()
+		httpc, rw, err := c.Writer.Hijack()
+		defer httpc.Close()
 
 		rw.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 
-		var lastSrc *net.UDPAddr
-		for {
-			n, src, err := l.ReadFromUDP(b)
+		lastSrc := ""
+		closed := false
+		go func() {
+			go rw.Read(make([]byte, 1))
+			<-c.Writer.CloseNotify()
+			log.Printf("client closed connectio")
+			closed = true
+		}()
+
+		for !closed {
+			err = pc.SetReadDeadline(time.Now().Add(3 * time.Second))
 			if err != nil {
-				log.Printf("stream reader failed %s\n", err)
-				return
+				log.Printf("set read dealine error: %v", err)
 			}
 
-			if lastSrc == nil {
+			n, cm, src, err := pc.ReadFrom(b)
+			if err != nil {
+				log.Printf("stream reader failed %v\n", err)
+				if strings.Contains(err.Error(), "timeout") { //invalidate last valid src and accept any
+					lastSrc = ""
+					continue
+				} else {
+					return
+				}
+			}
+			if addr.IP.String() != cm.Dst.String() {
+				// We have to filter dst address here because Golang tries to be too smart
+				// https://github.com/golang/go/issues/34728
+				continue
+			}
+
+			if lastSrc == "" {
 				log.Printf("locked to source %v\n", src)
-				lastSrc = src
+				lastSrc = src.String()
 			} else {
-				if !src.IP.Equal(lastSrc.IP) {
+				if src.String() != lastSrc {
 					//log.Printf("source mismatch %v %v\n", src, lastSrc)
 					continue
 				}
