@@ -77,6 +77,7 @@ func main() {
 		rw.Write([]byte("HTTP/1.1 200 OK\r\n\r\n"))
 
 		lastSrc := ""
+		lastPacket := time.Now()
 		closed := false
 		go func() {
 			go rw.Read(make([]byte, 1))
@@ -107,7 +108,7 @@ func main() {
 				continue
 			}
 
-			if lastSrc == "" {
+			if lastSrc == "" || lastPacket.Add(3*time.Second).Before(time.Now()) {
 				log.Printf("locked to source %v\n", src)
 				lastSrc = src.String()
 			} else {
@@ -116,6 +117,7 @@ func main() {
 					continue
 				}
 			}
+			lastPacket = time.Now()
 
 			data := b[:n]
 			//log.Printf("packet %v %d %d\n", src, n, len(data))
