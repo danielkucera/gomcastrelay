@@ -5,6 +5,7 @@ import (
 	"golang.org/x/net/ipv4"
 	"log"
 	"net"
+	"os"
 	"strings"
 	"time"
 )
@@ -17,11 +18,8 @@ const (
 func main() {
 	router := gin.Default()
 
-	allowedIPs := [...]string{
-		"127.0.0.1",
-		"95.85.254.39",
-		"46.227.180.235",
-	}
+	allowedIPsEnv := os.Getenv("ALLOWED_IPS")
+	allowedIPs := strings.Split(allowedIPsEnv, ",")
 
 	router.GET("/:address", func(c *gin.Context) {
 		address := c.Param("address")
