@@ -27,10 +27,10 @@ func main() {
 		client := c.ClientIP()
 		log.Printf("client %s requesting %s\n", client, address)
 
-		if len(allowedIPs) > 0 {
+		if len(allowedIPsEnv) > 0 {
 			allowed := false
 			for _, ip := range allowedIPs {
-				if client == ip {
+				if strings.HasPrefix(client, ip) {
 					allowed = true
 				}
 			}
@@ -80,7 +80,7 @@ func main() {
 		go func() {
 			go rw.Read(make([]byte, 1))
 			<-c.Writer.CloseNotify()
-			log.Printf("client closed connectio")
+			log.Printf("client closed connection")
 			closed = true
 		}()
 
